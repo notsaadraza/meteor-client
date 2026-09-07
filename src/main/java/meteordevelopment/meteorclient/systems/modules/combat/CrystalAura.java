@@ -1,7 +1,3 @@
-/*
- * This file is part of the Meteor Client distribution (https://github.com/MeteorDevelopment/meteor-client).
- * Copyright (c) Meteor Development.
- */
 
 package meteordevelopment.meteorclient.systems.modules.combat;
 
@@ -169,7 +165,7 @@ public class CrystalAura extends Module {
         .name("switch-delay")
         .description("The delay in ticks to wait to break a crystal after switching hotbar slot.")
         .defaultValue(0)
-        .min(0)
+        .min(-50)
         .build()
     );
 
@@ -208,7 +204,7 @@ public class CrystalAura extends Module {
         .name("place-delay")
         .description("The delay in ticks to wait to place a crystal after it's exploded.")
         .defaultValue(0)
-        .min(0)
+        .min(-50)
         .sliderMax(20)
         .build()
     );
@@ -313,7 +309,7 @@ public class CrystalAura extends Module {
         .name("break-delay")
         .description("The delay in ticks to wait to break a crystal after it's placed.")
         .defaultValue(0)
-        .min(0)
+        .min(-50)
         .sliderMax(20)
         .build()
     );
@@ -363,7 +359,7 @@ public class CrystalAura extends Module {
         .name("ticks-existed")
         .description("Amount of ticks a crystal needs to have lived for it to be attacked by CrystalAura.")
         .defaultValue(0)
-        .min(0)
+        .min(-50)
         .build()
     );
 
@@ -372,7 +368,7 @@ public class CrystalAura extends Module {
         .description("Maximum hits to do per second.")
         .defaultValue(25)
         .min(1)
-        .sliderRange(1, 30)
+        .sliderRange(1, 50)
         .build()
     );
 
@@ -450,7 +446,7 @@ public class CrystalAura extends Module {
         .name("place-time")
         .description("How long to render placements.")
         .defaultValue(10)
-        .min(0)
+        .min(-50)
         .sliderMax(20)
         .visible(() -> renderMode.get() == RenderMode.Normal && renderPlace.get())
         .build()
@@ -468,7 +464,7 @@ public class CrystalAura extends Module {
         .name("break-time")
         .description("How long to render breaking for.")
         .defaultValue(13)
-        .min(0)
+        .min(-50)
         .sliderMax(20)
         .visible(() -> renderMode.get() == RenderMode.Normal && renderBreak.get())
         .build()
@@ -478,7 +474,7 @@ public class CrystalAura extends Module {
         .name("smoothness")
         .description("How smoothly the render should move around.")
         .defaultValue(10)
-        .min(0)
+        .min(-50)
         .sliderMax(20)
         .visible(() -> renderMode.get() == RenderMode.Smooth)
         .build()
@@ -498,7 +494,7 @@ public class CrystalAura extends Module {
         .name("render-time")
         .description("How long to render placements.")
         .defaultValue(10)
-        .min(0)
+        .min(-50)
         .sliderMax(20)
         .visible(() -> renderMode.get() == RenderMode.Smooth || renderMode.get() == RenderMode.Fading)
         .build()
