@@ -1,4 +1,3 @@
-
 package meteordevelopment.meteorclient.systems.modules.combat;
 
 import com.google.common.util.concurrent.AtomicDouble;
@@ -604,6 +603,7 @@ public class CrystalAura extends Module {
     public void onActivate() {
         breakTimer = 0;
         placeTimer = 0;
+        switchTimer = 0;
         ticksPassed = 0;
 
         clipContext = new ClipContext(new Vec3(0, 0, 0), new Vec3(0, 0, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player);
@@ -640,7 +640,7 @@ public class CrystalAura extends Module {
     }
 
     private int getLastRotationStopDelay() {
-        return Math.max(10, placeDelay.get() / 2 + breakDelay.get() / 2 + 10);
+        return Math.max(10, Math.max(0, placeDelay.get()) / 2 + Math.max(0, breakDelay.get()) / 2 + 10);
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -667,10 +667,19 @@ public class CrystalAura extends Module {
         if (bestTargetTimer > 0) bestTargetTimer--;
         bestTargetDamage = 0;
 
-        // Decrement break, place and switch timers
-        if (breakTimer > 0) breakTimer--;
-        if (placeTimer > 0) placeTimer--;
-        if (switchTimer > 0) switchTimer--;
+        // Decrement or increment break, place and switch timers towards 0
+        if (breakTimer != 0) {
+            if (breakTimer > 0) breakTimer--;
+            else breakTimer++;
+        }
+        if (placeTimer != 0) {
+            if (placeTimer > 0) placeTimer--;
+            else placeTimer++;
+        }
+        if (switchTimer != 0) {
+            if (switchTimer > 0) switchTimer--;
+            else switchTimer++;
+        }
 
         // Decrement render timers
         if (placeRenderTimer > 0) placeRenderTimer--;
@@ -756,21 +765,31 @@ public class CrystalAura extends Module {
         if (!doBreak.get() || breakTimer > 0 || switchTimer > 0 || attacks >= attackFrequency.get()) return;
         if (shouldPause(PauseMode.Break)) return;
 
-        float bestDamage = 0;
-        Entity crystal = null;
+        int loops = breakDelay.get() <= 0 ? Math.abs(breakDelay.get()) + 1 : 1;
 
-        // Find best crystal to break
-        for (Entity entity : mc.level.entitiesForRendering()) {
-            float damage = getBreakDamage(entity, true);
+        for (int i = 0; i < loops; i++) {
+            if (attacks >= attackFrequency.get()) break;
 
-            if (damage > bestDamage) {
-                bestDamage = damage;
-                crystal = entity;
+            float bestDamage = 0;
+            Entity crystal = null;
+
+            // Find best crystal to break
+            for (Entity entity : mc.level.entitiesForRendering()) {
+                float damage = getBreakDamage(entity, true);
+
+                if (damage > bestDamage) {
+                    bestDamage = damage;
+                    crystal = entity;
+                }
+            }
+
+            // Break the crystal
+            if (crystal != null) {
+                doBreak(crystal);
+            } else {
+                break;
             }
         }
-
-        // Break the crystal
-        if (crystal != null) doBreak(crystal);
     }
 
     private float getBreakDamage(Entity entity, boolean checkCrystalAge) {
@@ -785,8 +804,9 @@ public class CrystalAura extends Module {
         // Check attempted breaks
         if (attemptedBreaks.get(entity.getId()) > breakAttempts.get()) return 0;
 
-        // Check crystal age
-        if (checkCrystalAge && entity.tickCount < ticksExisted.get()) return 0;
+        // Check crystal age (Negative values treated as 0 delay)
+        int minTicks = Math.max(0, ticksExisted.get());
+        if (checkCrystalAge && entity.tickCount < minTicks) return 0;
 
         // Check range
         if (isOutOfRange(entity.position(), entity.blockPosition(), false)) return 0;
@@ -889,107 +909,111 @@ public class CrystalAura extends Module {
         if (!doPlace.get() || placeTimer > 0) return;
         if (shouldPause(PauseMode.Place)) return;
 
-        // Return if there are no crystals in hotbar or offhand
-        if (!InvUtils.testInHotbar(Items.END_CRYSTAL)) return;
+        int loops = placeDelay.get() <= 0 ? Math.abs(placeDelay.get()) + 1 : 1;
 
-        // Return if there are no crystals in either hand and auto switch mode is none
-        if (autoSwitch.get() != AutoSwitchMode.None) {
-            if (noGapSwitch.get() && autoSwitch.get() == AutoSwitchMode.Normal && offItem != Items.END_CRYSTAL) {
-                if (mainItem == Items.ENCHANTED_GOLDEN_APPLE
-                    || offItem == Items.ENCHANTED_GOLDEN_APPLE
-                    || mainItem == Items.GOLDEN_APPLE
-                    || offItem == Items.GOLDEN_APPLE) return;
-            }
-            if (noBowSwitch.get() && (mainItem == Items.BOW || offItem == Items.BOW)) return;
-        } else if (mainItem != Items.END_CRYSTAL && offItem != Items.END_CRYSTAL) return;
+        for (int i = 0; i < loops; i++) {
+            // Return if there are no crystals in hotbar or offhand
+            if (!InvUtils.testInHotbar(Items.END_CRYSTAL)) return;
 
-        // Check for multiplace
-        for (Entity entity : mc.level.entitiesForRendering()) {
-            if (getBreakDamage(entity, false) > 0) return;
-        }
-
-        // Setup variables
-        AtomicDouble bestDamage = new AtomicDouble(0);
-        AtomicReference<BlockPos.MutableBlockPos> bestBlockPos = new AtomicReference<>(new BlockPos.MutableBlockPos());
-        AtomicBoolean isSupport = new AtomicBoolean(support.get() != SupportMode.Disabled);
-
-        // Find best position to place the crystal on
-        BlockIterator.register((int) Math.ceil(placeRange.get()), (int) Math.ceil(placeRange.get()), (bp, blockState) -> {
-            // Check if its bedrock or obsidian and return if isSupport is false
-            boolean hasBlock = blockState.is(Blocks.BEDROCK) || blockState.is(Blocks.OBSIDIAN);
-            if (!hasBlock && (!isSupport.get() || !blockState.canBeReplaced())) return;
-
-            // Check if there is air on top
-            blockPos.set(bp.getX(), bp.getY() + 1, bp.getZ());
-            if (!mc.level.getBlockState(blockPos).isAir()) return;
-
-            if (placement112.get()) {
-                blockPos.move(0, 1, 0);
-                if (!mc.level.getBlockState(blockPos).isAir()) return;
-            }
-
-            // Check range
-            ((IVec3) vec3d).meteor$set(bp.getX() + 0.5, bp.getY() + 1, bp.getZ() + 0.5);
-            blockPos.set(bp).move(0, 1, 0);
-            if (isOutOfRange(vec3d, blockPos, true)) return;
-
-            // Check damage to self and anti suicide
-            float selfDamage = DamageUtils.crystalDamage(mc.player, vec3d, predictMovement.get(), bp);
-            if (selfDamage > maxDamage.get() || (antiSuicide.get() && selfDamage >= EntityUtils.getTotalHealth(mc.player)))
-                return;
-
-            // Check damage to targets and face place
-            float damage = getDamageToTargets(vec3d, bp, false, !hasBlock && support.get() == SupportMode.Fast);
-
-            boolean shouldFacePlace = shouldFacePlace();
-            double minimumDamage = Math.min(minDamage.get(), shouldFacePlace ? 1.5 : minDamage.get());
-
-            if (damage < minimumDamage) return;
-
-            // Check if it can be placed
-            double x = bp.getX();
-            double y = bp.getY() + 1;
-            double z = bp.getZ();
-            ((IAABB) box).meteor$set(x, y, z, x + 1, y + (placement112.get() ? 1 : 2), z + 1);
-
-            if (intersectsWithEntities(box)) return;
-
-            // Compare damage
-            if (damage > bestDamage.get() || (isSupport.get() && hasBlock)) {
-                bestDamage.set(damage);
-                bestBlockPos.get().set(bp);
-            }
-
-            if (hasBlock) isSupport.set(false);
-        });
-
-        // Place the crystal
-        BlockIterator.after(() -> {
-            if (bestDamage.get() == 0) return;
-
-            BlockHitResult result = getPlaceInfo(bestBlockPos.get());
-
-            ((IVec3) vec3d).meteor$set(
-                result.getBlockPos().getX() + 0.5 + result.getDirection().getUnitVec3i().getX() * 1.0 / 2.0,
-                result.getBlockPos().getY() + 0.5 + result.getDirection().getUnitVec3i().getY() * 1.0 / 2.0,
-                result.getBlockPos().getZ() + 0.5 + result.getDirection().getUnitVec3i().getZ() * 1.0 / 2.0
-            );
-
-            if (rotate.get()) {
-                double yaw = Rotations.getYaw(vec3d);
-                double pitch = Rotations.getPitch(vec3d);
-
-                if (yawStepMode.get() == YawStepMode.Break || doYawSteps(yaw, pitch)) {
-                    setRotation(true, vec3d, 0, 0);
-                    Rotations.rotate(yaw, pitch, 50, () -> placeCrystal(result, bestDamage.get(), isSupport.get() ? bestBlockPos.get() : null));
-
-                    placeTimer += placeDelay.get();
+            // Return if there are no crystals in either hand and auto switch mode is none
+            if (autoSwitch.get() != AutoSwitchMode.None) {
+                if (noGapSwitch.get() && autoSwitch.get() == AutoSwitchMode.Normal && offItem != Items.END_CRYSTAL) {
+                    if (mainItem == Items.ENCHANTED_GOLDEN_APPLE
+                        || offItem == Items.ENCHANTED_GOLDEN_APPLE
+                        || mainItem == Items.GOLDEN_APPLE
+                        || offItem == Items.GOLDEN_APPLE) return;
                 }
-            } else {
-                placeCrystal(result, bestDamage.get(), isSupport.get() ? bestBlockPos.get() : null);
-                placeTimer += placeDelay.get();
+                if (noBowSwitch.get() && (mainItem == Items.BOW || offItem == Items.BOW)) return;
+            } else if (mainItem != Items.END_CRYSTAL && offItem != Items.END_CRYSTAL) return;
+
+            // Check for multiplace
+            for (Entity entity : mc.level.entitiesForRendering()) {
+                if (getBreakDamage(entity, false) > 0) return;
             }
-        });
+
+            // Setup variables
+            AtomicDouble bestDamage = new AtomicDouble(0);
+            AtomicReference<BlockPos.MutableBlockPos> bestBlockPos = new AtomicReference<>(new BlockPos.MutableBlockPos());
+            AtomicBoolean isSupport = new AtomicBoolean(support.get() != SupportMode.Disabled);
+
+            // Find best position to place the crystal on
+            BlockIterator.register((int) Math.ceil(placeRange.get()), (int) Math.ceil(placeRange.get()), (bp, blockState) -> {
+                // Check if its bedrock or obsidian and return if isSupport is false
+                boolean hasBlock = blockState.is(Blocks.BEDROCK) || blockState.is(Blocks.OBSIDIAN);
+                if (!hasBlock && (!isSupport.get() || !blockState.canBeReplaced())) return;
+
+                // Check if there is air on top
+                blockPos.set(bp.getX(), bp.getY() + 1, bp.getZ());
+                if (!mc.level.getBlockState(blockPos).isAir()) return;
+
+                if (placement112.get()) {
+                    blockPos.move(0, 1, 0);
+                    if (!mc.level.getBlockState(blockPos).isAir()) return;
+                }
+
+                // Check range
+                ((IVec3) vec3d).meteor$set(bp.getX() + 0.5, bp.getY() + 1, bp.getZ() + 0.5);
+                blockPos.set(bp).move(0, 1, 0);
+                if (isOutOfRange(vec3d, blockPos, true)) return;
+
+                // Check damage to self and anti suicide
+                float selfDamage = DamageUtils.crystalDamage(mc.player, vec3d, predictMovement.get(), bp);
+                if (selfDamage > maxDamage.get() || (antiSuicide.get() && selfDamage >= EntityUtils.getTotalHealth(mc.player)))
+                    return;
+
+                // Check damage to targets and face place
+                float damage = getDamageToTargets(vec3d, bp, false, !hasBlock && support.get() == SupportMode.Fast);
+
+                boolean shouldFacePlace = shouldFacePlace();
+                double minimumDamage = Math.min(minDamage.get(), shouldFacePlace ? 1.5 : minDamage.get());
+
+                if (damage < minimumDamage) return;
+
+                // Check if it can be placed
+                double x = bp.getX();
+                double y = bp.getY() + 1;
+                double z = bp.getZ();
+                ((IAABB) box).meteor$set(x, y, z, x + 1, y + (placement112.get() ? 1 : 2), z + 1);
+
+                if (intersectsWithEntities(box)) return;
+
+                // Compare damage
+                if (damage > bestDamage.get() || (isSupport.get() && hasBlock)) {
+                    bestDamage.set(damage);
+                    bestBlockPos.get().set(bp);
+                }
+
+                if (hasBlock) isSupport.set(false);
+            });
+
+            // Place the crystal
+            BlockIterator.after(() -> {
+                if (bestDamage.get() == 0) return;
+
+                BlockHitResult result = getPlaceInfo(bestBlockPos.get());
+
+                ((IVec3) vec3d).meteor$set(
+                    result.getBlockPos().getX() + 0.5 + result.getDirection().getUnitVec3i().getX() * 1.0 / 2.0,
+                    result.getBlockPos().getY() + 0.5 + result.getDirection().getUnitVec3i().getY() * 1.0 / 2.0,
+                    result.getBlockPos().getZ() + 0.5 + result.getDirection().getUnitVec3i().getZ() * 1.0 / 2.0
+                );
+
+                if (rotate.get()) {
+                    double yaw = Rotations.getYaw(vec3d);
+                    double pitch = Rotations.getPitch(vec3d);
+
+                    if (yawStepMode.get() == YawStepMode.Break || doYawSteps(yaw, pitch)) {
+                        setRotation(true, vec3d, 0, 0);
+                        Rotations.rotate(yaw, pitch, 50, () -> placeCrystal(result, bestDamage.get(), isSupport.get() ? bestBlockPos.get() : null));
+
+                        placeTimer = placeDelay.get();
+                    }
+                } else {
+                    placeCrystal(result, bestDamage.get(), isSupport.get() ? bestBlockPos.get() : null);
+                    placeTimer = placeDelay.get();
+                }
+            });
+        }
     }
 
     private BlockHitResult getPlaceInfo(BlockPos blockPos) {
@@ -1060,7 +1084,7 @@ public class CrystalAura extends Module {
         } else {
             // Place support block
             BlockUtils.place(supportBlock, item, false, 0, swingMode.get().client(), true, false);
-            placeTimer += supportDelay.get();
+            placeTimer = supportDelay.get();
 
             if (supportDelay.get() == 0) placeCrystal(result, damage, null);
         }
@@ -1096,7 +1120,7 @@ public class CrystalAura extends Module {
         }
 
         setRotation(false, null, yaw, targetPitch);
-        Rotations.rotate(yaw, targetPitch, -100, null); // Priority -100 so it sends the packet as the last one, im pretty sure it doesn't matte but idc
+        Rotations.rotate(yaw, targetPitch, -100, null);
         return false;
     }
 
