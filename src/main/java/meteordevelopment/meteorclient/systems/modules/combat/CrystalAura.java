@@ -325,7 +325,7 @@ public class CrystalAura extends Module {
         .description("Range in which to break crystals.")
         .defaultValue(4.5)
         .min(0)
-        .sliderMax(6)
+        .sliderMax(10)
         .build()
     );
 
@@ -334,7 +334,7 @@ public class CrystalAura extends Module {
         .description("Range in which to break crystals when behind blocks.")
         .defaultValue(4.5)
         .min(0)
-        .sliderMax(6)
+        .sliderMax(10)
         .build()
     );
 
@@ -365,9 +365,9 @@ public class CrystalAura extends Module {
     private final Setting<Integer> attackFrequency = sgBreak.add(new IntSetting.Builder()
         .name("attack-frequency")
         .description("Maximum hits to do per second.")
-        .defaultValue(25)
+        .defaultValue(30)
         .min(1)
-        .sliderRange(1, 50)
+        .sliderRange(1, 100)
         .build()
     );
 
